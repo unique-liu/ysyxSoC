@@ -153,9 +153,9 @@ class APBSPI(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModul
       }
       is(xip_read) {
         when(apb_state === idle){
-          state := xip_hold
+          state := normal
           in.pready := true.B
-          in.prdata := apb_bus.prdata
+          in.prdata := Cat(apb_bus.prdata(7,0),apb_bus.prdata(15,8),apb_bus.prdata(23,16),apb_bus.prdata(31,24))
         }
       }
       is(xip_hold) {
