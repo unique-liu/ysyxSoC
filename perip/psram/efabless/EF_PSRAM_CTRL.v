@@ -37,7 +37,7 @@
         rle             903         155                 5.8
         prime           549         97                  5.66
 */
-
+`define USE_QPI
 `timescale              1ns/1ps
 `default_nettype        none
 
@@ -101,7 +101,12 @@ module PSRAM_READER (
         if(!rst_n)
             counter <= 8'b0;
         else if(sck & ~done)
+        `ifdef USE_QPI
+            counter <= counter == 8'b1 ? 8'd8 : (counter + 1'b1);
+        `else
             counter <= counter + 1'b1;
+        `endif
+
         else if(state == IDLE)
             counter <= 8'b0;
 
@@ -119,7 +124,12 @@ module PSRAM_READER (
             if(sck)
                 data[byte_index] <= {data[byte_index][3:0], din}; // Optimize!
 
+`ifdef USE_QPI
+    assign dout     =   (counter == 0)   ?   CMD_EBH[7:4]:
+                        (counter == 1)   ?   CMD_EBH[3:0]:
+`else
     assign dout     =   (counter < 8)   ?   {3'b0, CMD_EBH[7 - counter]}:
+`endif
                         (counter == 8)  ?   saddr[23:20]        :
                         (counter == 9)  ?   saddr[19:16]        :
                         (counter == 10) ?   saddr[15:12]        :
@@ -202,7 +212,11 @@ module PSRAM_WRITER (
         if(!rst_n)
             counter <= 8'b0;
         else if(sck & ~done)
+        `ifdef USE_QPI
+            counter <= counter == 8'b1 ? 8'd8 : (counter + 1'b1);
+        `else
             counter <= counter + 1'b1;
+        `endif
         else if(state == IDLE)
             counter <= 8'b0;
 
@@ -212,7 +226,12 @@ module PSRAM_WRITER (
         else if((state == IDLE) && wr)
             saddr <= addr;
 
+`ifdef USE_QPI
+    assign dout     =   (counter == 0)   ?   CMD_38H[7:4]:
+                        (counter == 1)   ?   CMD_38H[3:0]:
+`else
     assign dout     =   (counter < 8)   ?   {3'b0, CMD_38H[7 - counter]}:
+`endif
                         (counter == 8)  ?   saddr[23:20]        :
                         (counter == 9)  ?   saddr[19:16]        :
                         (counter == 10) ?   saddr[15:12]        :
