@@ -50,10 +50,11 @@ class APBSPI(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModul
     spi_bundle <> mspi.io.spi
 
     val normal :: xip_tx :: xip_div :: xip_ss :: xip_ctrl :: xip_wait :: xip_read :: xip_hold :: Nil = Enum(8)
+    val state = RegInit(normal)
     val is_xip = Wire(Bool())
+    val xip_ready = RegInit(false.B)
 
     val idle :: setup :: enable :: get_data :: Nil = Enum(4)
-    val state = RegInit(normal)
     val apb_state = RegInit(idle)
     val apb_addr = RegInit(0.U(32.W))
     val apb_rdata = RegInit(0.U(32.W))
@@ -84,12 +85,19 @@ class APBSPI(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModul
     in.pslverr  := false.B
     switch(state) {
       is(normal) {
-        when(is_xip) {
+        when(is_xip && xip_ready) {
+          state := xip_ss
+          apb_run := true.B
+          apb_addr := 0x10001004.U(32.W)// tx1
+          apb_wdata := Cat(0x3.U(4.W),in.paddr(23, 0))
+          apb_write := true.B
+        }.elsewhen(is_xip && !xip_ready){
           state := xip_tx
           apb_run := true.B
           apb_addr := 0x10001004.U(32.W)// tx1
           apb_wdata := Cat(0x3.U(4.W),in.paddr(23, 0))
           apb_write := true.B
+          xip_ready := true.B
         }.otherwise {
           mspi.io.in.paddr := in.paddr
           mspi.io.in.psel := in.psel
@@ -101,10 +109,11 @@ class APBSPI(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModul
           in.pready := mspi.io.in.pready
           in.prdata := mspi.io.in.prdata
           in.pslverr := mspi.io.in.pslverr
+          xip_ready := false.B
         }
       }
       is(xip_tx) {
-        when(apb_state === idle){
+        when(apb_state === idle || apb_state === enable && apb_bus.pready){
           state := xip_div
           apb_run := true.B
           apb_addr := 0x10001014.U(32.W)// div
@@ -113,7 +122,7 @@ class APBSPI(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModul
         }
       }
       is(xip_div) {
-        when(apb_state === idle){
+        when(apb_state === idle || apb_state === enable && apb_bus.pready){
           state := xip_ss
           apb_run := true.B
           apb_addr := 0x10001018.U(32.W)// ss
@@ -122,7 +131,7 @@ class APBSPI(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModul
         }
       }
       is(xip_ss) {
-        when(apb_state === idle){
+        when(apb_state === idle || apb_state === enable && apb_bus.pready){
           state := xip_ctrl
           apb_run := true.B
           apb_addr := 0x10001010.U(32.W)// ctrl
@@ -131,7 +140,7 @@ class APBSPI(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModul
         }
       }
       is(xip_ctrl) {
-        when(apb_state === idle){
+        when(apb_state === idle || apb_state === enable && apb_bus.pready){
           state := xip_wait
           apb_run := true.B
           apb_addr := 0x10001010.U(32.W)// ctrl
@@ -140,10 +149,10 @@ class APBSPI(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModul
         }
       }
       is(xip_wait) {
-        when((apb_state === idle) && (apb_rdata(8) === 1.U)){
+        when((apb_state === idle) && (apb_rdata(8) === 1.U) || (apb_state === enable && apb_bus.pready && apb_bus.prdata(8) === 1.U)){
           state := xip_wait
           apb_run := true.B
-        }.elsewhen((apb_state === idle) && (apb_rdata(8) === 0.U)){
+        }.elsewhen((apb_state === idle) && (apb_rdata(8) === 0.U) || (apb_state === enable && apb_bus.pready && apb_bus.prdata(8) === 0.U)){
           state := xip_read
           apb_run := true.B
           apb_addr := 0x10001000.U(32.W)// rx0
@@ -152,15 +161,12 @@ class APBSPI(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModul
         }
       }
       is(xip_read) {
-        when(apb_state === idle){
+        when(apb_state === idle || apb_state === enable && apb_bus.pready){
           state := normal
           in.pready := true.B
-          in.prdata := Cat(apb_bus.prdata(7,0),apb_bus.prdata(15,8),apb_bus.prdata(23,16),apb_bus.prdata(31,24))
+          in.prdata := Mux(apb_state === idle,Cat(apb_rdata(7,0),apb_rdata(15,8),apb_rdata(23,16),apb_rdata(31,24)),
+                                              Cat(apb_bus.prdata(7,0),apb_bus.prdata(15,8),apb_bus.prdata(23,16),apb_bus.prdata(31,24)))
         }
-      }
-      is(xip_hold) {
-        state := normal
-        in.prdata := apb_rdata
       }
     }
 
@@ -182,16 +188,19 @@ class APBSPI(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModul
         apb_bus.psel := true.B
       }
       is(enable) {
-        when(apb_bus.pready) {
-          apb_state := get_data
+        when(apb_bus.pready && !apb_run) {
+          apb_state := idle
+        }.elsewhen(apb_bus.pready && apb_run) {
+          apb_state := setup
         }
         apb_bus.psel := true.B
         apb_bus.penable := true.B
-      }
-      is(get_data) {
         apb_rdata := apb_bus.prdata
-        apb_state := idle
       }
+      // is(get_data) {
+      //   apb_rdata := apb_bus.prdata
+      //   apb_state := idle
+      // }
     }
 
     
