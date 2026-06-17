@@ -10,10 +10,10 @@ module sdram(
   input [ 1:0] dqm,
   inout [15:0] dq
 );
-  parameter CMD_ACTIVE    = 5'b10011,//[cke,cs,ras,cas,we] = 10011
-            CMD_READ      = 5'b10101,//[cke,cs,ras,cas,we] = 10101
-            CMD_WRITE     = 5'b10100,//[cke,cs,ras,cas,we] = 10100
-            CMD_LOAD_MODE = 5'b10000;//[cke,cs,ras,cas,we] = 10000
+  parameter CMD_ACTIVE    = 5'b10011,//[cke,cs,ras,cas,we] = 10011 13
+            CMD_READ      = 5'b10101,//[cke,cs,ras,cas,we] = 10101 15
+            CMD_WRITE     = 5'b10100,//[cke,cs,ras,cas,we] = 10100 14
+            CMD_LOAD_MODE = 5'b10000;//[cke,cs,ras,cas,we] = 10000 10
   parameter idle          = 4'b0001,
             active        = 4'b0010,
             read          = 4'b0100,
@@ -34,6 +34,10 @@ module sdram(
   reg [12:0] row_addr[3:0];
   reg [8:0] col_addr;
   reg [1:0] ba_addr;
+  reg       continue_read;
+  reg [15:0] data_buffer2;
+  reg [8:0] col_addr2;
+  reg [1:0] ba_addr2;
 
   assign real_burst_length = (mode_burst_length == 3'b000) ? 3'b1 :
                               (mode_burst_length == 3'b001) ? 3'b10 :
@@ -74,11 +78,24 @@ module sdram(
           end
         end
         read: begin
+          if (cmd == CMD_READ) begin
+            continue_read <= 1'b1;
+            sdram_read({7'b0,row_addr[ba],ba,a[8:0],1'b0}, data_buffer2, 8'b0);
+            col_addr2 <= a[8:0];
+            ba_addr2 <= ba;
+          end
+
           if (latency_counter < mode_CAS_latency) begin
             latency_counter <= latency_counter + 1;
           end else if (burst_counter < real_burst_length) begin
             sdram_read({7'b0,row_addr[ba_addr],ba_addr,col_addr,1'b0}, data_buffer, {5'b0,burst_counter});
             burst_counter <= burst_counter + 1;
+          end else if (continue_read)begin
+            continue_read <= 1'b0;
+            data_buffer <= data_buffer2;
+            burst_counter <= 3'b1;
+            col_addr <= col_addr2;
+            ba_addr <= ba_addr2;
           end else begin
             state <= active;
           end
