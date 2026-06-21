@@ -21,8 +21,8 @@ class apb_delayer extends BlackBox {
 }
 
 class APBDelayerChisel extends Module {
-  var r = 5 //delay times  npc is 500MHz soc is 100MHz
-  var s = 8 //delay multipler & divider
+  val r = 5 //delay times  npc is 500MHz soc is 100MHz
+  val s = 8 //delay multipler & divider
   val s_power = 3 // power of s, use to fast divide
   val io = IO(new APBDelayerIO)
 
