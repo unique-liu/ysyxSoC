@@ -26,7 +26,7 @@ class APBDelayerChisel extends Module {
   val s_power = 3 // power of s, use to fast divide
   val io = IO(new APBDelayerIO)
 
-  if(r == 0){
+  if(r == 0 || !Config.useDelayer){
     io.out <> io.in
   }else{
     val idle :: wait_finish :: wait_ret :: Nil = Enum(3)

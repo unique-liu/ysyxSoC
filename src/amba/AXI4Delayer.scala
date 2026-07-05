@@ -26,7 +26,7 @@ class AXI4DelayerChisel extends Module {
   val s_power = 3 // power of s, use to fast divide
   val io = IO(new AXI4DelayerIO)
 
-  if(r == 0){
+  if(r == 0 || !Config.useDelayer){
     io.out <> io.in
   }else{
     // read fsm
